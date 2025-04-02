@@ -22,6 +22,11 @@ import psycopg2
 import re
 from flask_session import Session
 from typing import List
+import time
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from openai import RateLimitError
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
 # Load environment variables
 load_dotenv()
@@ -70,7 +75,17 @@ Session(app)
 os.makedirs(app.config['SESSION_FILE_DIR'], exist_ok=True)
 
 # Initialize OpenAI client
-client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+api_key = os.getenv('OPENAI_API_KEY')
+if not api_key:
+    logger.error("OPENAI_API_KEY environment variable is not set")
+    raise ValueError("OpenAI API key is required")
+
+try:
+    client = OpenAI(api_key=api_key)
+    logger.info("OpenAI client initialized successfully")
+except Exception as e:
+    logger.error(f"Failed to initialize OpenAI client: {str(e)}")
+    raise
 
 # Initialize vector database
 vector_db = PostgreSQLVectorDB(connection_string='postgresql://datasundae:6AV%25b9@localhost:5432/musartao')
@@ -96,6 +111,14 @@ SCOPES = [
     'https://www.googleapis.com/auth/userinfo.profile',
     'openid'
 ]
+
+# Initialize rate limiter
+limiter = Limiter(
+    app=app,
+    key_func=get_remote_address,
+    default_limits=["200 per day", "50 per hour"],
+    storage_uri="redis://localhost:6379"
+)
 
 def login_required(f):
     @wraps(f)
@@ -149,19 +172,9 @@ def get_relevant_context(query: str) -> List[str]:
         logger.info(f"Attempting to retrieve context from books database...")
         logger.info(f"Searching for context related to: {query}")
         
-        # Generate query embedding
-        logger.info("Generating query embedding...")
-        query_embedding = model.encode(query)
-        logger.info(f"Generated embedding with shape: {query_embedding.shape}")
-        
-        # Perform vector similarity search with metadata filter for Animal Spirits
+        # Perform vector similarity search without metadata filter
         logger.info("Performing vector similarity search...")
-        metadata_filter = {
-            "title": "Animal Spirits",
-            "author": "Robert Schiller"
-        }
-        logger.info(f"Using metadata filter: {metadata_filter}")
-        results = vector_db.search(query_embedding, limit=5, metadata_filter=metadata_filter)
+        results = vector_db.search(query, k=5)
         
         if not results:
             logger.info("No relevant documents found")
@@ -171,29 +184,64 @@ def get_relevant_context(query: str) -> List[str]:
         
         # Process and return context
         context_parts = []
-        for i, doc in enumerate(results, 1):
+        total_tokens = 0
+        max_tokens = 20000  # Limit total tokens to avoid OpenAI rate limits
+        max_doc_tokens = 4000  # Maximum tokens per document
+        
+        for i, (doc, similarity) in enumerate(results, 1):
             logger.info(f"Processing document {i}/{len(results)}")
             logger.info(f"Document {i} metadata: {doc.metadata}")  # Log full metadata for debugging
             
-            if not doc.text:
-                logger.warning(f"Document {i} has no text content")
+            # Get document text from either text or content attribute
+            doc_text = getattr(doc, 'text', None) or getattr(doc, 'content', None)
+            if not doc_text:
+                logger.warning(f"Document {i} has no text or content")
+                logger.warning(f"Document {i} attributes: {dir(doc)}")  # Log available attributes
                 continue
+            
+            logger.info(f"Document {i} text length: {len(doc_text)}")
+            
+            # Truncate document text if needed
+            doc_tokens = count_tokens(doc_text)
+            if doc_tokens > max_doc_tokens:
+                logger.info(f"Document {i} exceeds token limit ({doc_tokens} tokens), truncating...")
+                # Truncate text to roughly max_doc_tokens
+                encoding = tiktoken.encoding_for_model("gpt-4-turbo-preview")
+                tokens = encoding.encode(doc_text)
+                doc_text = encoding.decode(tokens[:max_doc_tokens])
+                doc_tokens = count_tokens(doc_text)
+                logger.info(f"Document {i} truncated to {doc_tokens} tokens")
             
             # Format the document with its metadata
             formatted_doc = f"""
 From '{doc.metadata.get('title', 'Unknown Title')}' by {doc.metadata.get('author', 'Unknown Author')}
 Page: {doc.metadata.get('page', 'Unknown')}
-Similarity Score: {doc.metadata.get('similarity', 'Unknown')}
+Similarity Score: {similarity:.4f}
 
-Content:
-{doc.text}
+{doc_text}
 """
-            context_parts.append(formatted_doc)
             
+            # Count tokens in the formatted document
+            formatted_tokens = count_tokens(formatted_doc)
+            logger.info(f"Document {i} formatted token count: {formatted_tokens}")
+            
+            # Check if adding this document would exceed the token limit
+            if total_tokens + formatted_tokens > max_tokens:
+                logger.info(f"Token limit reached ({total_tokens} tokens), stopping context collection")
+                break
+                
+            context_parts.append(formatted_doc)
+            total_tokens += formatted_tokens
+            
+        logger.info(f"Successfully retrieved context from vector database")
+        logger.info(f"Context length: {len(context_parts)}")
+        logger.info(f"Total tokens: {total_tokens}")
         return context_parts
         
     except Exception as e:
         logger.error(f"Error retrieving context: {str(e)}")
+        logger.error(f"Error type: {type(e)}")
+        logger.error(f"Error details: {e.__dict__ if hasattr(e, '__dict__') else 'No details available'}")
         return []
 
 def filter_sensitive_info(text):
@@ -370,8 +418,30 @@ def ingest_content():
         logger.error(f"Error ingesting content: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=4, max=10),
+    retry=retry_if_exception_type(RateLimitError)
+)
+def get_openai_response(client, messages, model="gpt-4-turbo-preview", temperature=0.7, max_tokens=1000):
+    """Get response from OpenAI with retry logic."""
+    try:
+        return client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens
+        )
+    except RateLimitError as e:
+        logger.warning(f"OpenAI rate limit hit, will retry: {str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"Error in OpenAI API call: {str(e)}")
+        raise
+
 @app.route('/chat', methods=['POST'])
 @login_required
+@limiter.limit("10 per minute")
 def chat():
     try:
         message = request.json.get('message')
@@ -382,7 +452,21 @@ def chat():
         
         # Get relevant context from books database
         logger.info("Attempting to retrieve context from books database...")
-        context = get_relevant_context(message)
+        try:
+            logger.info("Connecting to vector database...")
+            if not vector_db:
+                logger.error("Vector database connection is None")
+                raise Exception("Vector database connection not initialized")
+                
+            context = get_relevant_context(message)
+            logger.info("Successfully retrieved context from vector database")
+            logger.info(f"Context length: {len(context) if context else 0}")
+            
+        except Exception as e:
+            logger.error(f"Error retrieving context from vector database: {str(e)}")
+            logger.error(f"Vector DB error details: {e.__dict__ if hasattr(e, '__dict__') else 'No details available'}")
+            logger.error(f"Vector DB error type: {type(e)}")
+            context = []
         
         # Even if no context is found, we should still proceed with a response
         if not context:
@@ -406,18 +490,39 @@ def chat():
 
         logger.info("Sending request to OpenAI with context")
         
-        # Get response from OpenAI
-        response = client.chat.completions.create(
-            model="gpt-4-turbo-preview",
-            messages=[
-                {"role": "system", "content": system_message},
-                {"role": "user", "content": message}
-            ],
-            temperature=0.7,
-            max_tokens=1000
-        )
+        try:
+            # Verify OpenAI client is initialized
+            if not client:
+                logger.error("OpenAI client is None")
+                raise Exception("OpenAI client not initialized")
+                
+            # Get response from OpenAI with retry logic
+            logger.info("Making OpenAI API call...")
+            response = get_openai_response(
+                client,
+                messages=[
+                    {"role": "system", "content": system_message},
+                    {"role": "user", "content": message}
+                ]
+            )
+            logger.info("Successfully received response from OpenAI")
+            
+        except RateLimitError as e:
+            logger.error(f"OpenAI rate limit exceeded after retries: {str(e)}")
+            return jsonify({
+                'error': 'Rate limit exceeded. Please wait a moment and try again.',
+                'retry_after': getattr(e, 'retry_after', 60),  # Default to 60 seconds if not specified
+                'source': 'OpenAI'
+            }), 429
+        except Exception as e:
+            logger.error(f"Error calling OpenAI API: {str(e)}")
+            logger.error(f"OpenAI error details: {e.__dict__ if hasattr(e, '__dict__') else 'No details available'}")
+            logger.error(f"OpenAI error type: {type(e)}")
+            return jsonify({
+                'error': 'An error occurred while processing your request. Please try again.',
+                'details': str(e) if app.debug else None
+            }), 500
 
-        logger.info("Received response from OpenAI")
         return jsonify({
             'response': response.choices[0].message.content,
             'has_context': bool(context and context != "No specific information found in the database for this query.")
@@ -426,13 +531,16 @@ def chat():
     except Exception as e:
         error_message = str(e)
         logger.error(f"Error in chat endpoint: {error_message}")
-        if "rate_limit_exceeded" in error_message:
+        logger.error(f"Full error details: {e.__dict__ if hasattr(e, '__dict__') else 'No details available'}")
+        logger.error(f"Error type: {type(e)}")
+        if "maximum context length" in error_message.lower():
             return jsonify({
-                'error': 'The request was too large. Please try again with a shorter message or wait a moment.'
-            }), 429
+                'error': 'The request was too large. Please try again with a shorter message.'
+            }), 413
         return jsonify({
             'error': 'An error occurred while processing your request. Please try again.',
-            'details': error_message if app.debug else None
+            'details': error_message if app.debug else None,
+            'error_type': str(type(e))
         }), 500
 
 def truncate_text(text: str, max_tokens: int) -> str:
