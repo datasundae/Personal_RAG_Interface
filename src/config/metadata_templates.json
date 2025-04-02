@@ -1,0 +1,77 @@
+{
+    "research_paper": {
+        "genre": "research_paper",
+        "subgenre": null,
+        "topics": [],
+        "year": null,
+        "authors": [],
+        "institution": null,
+        "publication": null
+    },
+    "article": {
+        "genre": "article",
+        "subgenre": null,
+        "topics": [],
+        "year": null,
+        "authors": [],
+        "publication": null,
+        "url": null
+    },
+    "book": {
+        "genre": "book",
+        "subgenre": null,
+        "topics": [],
+        "year": null,
+        "authors": [],
+        "publisher": null,
+        "isbn": null
+    },
+    "report": {
+        "genre": "report",
+        "subgenre": null,
+        "topics": [],
+        "year": null,
+        "authors": [],
+        "organization": null
+    },
+    "documentation": {
+        "genre": "documentation",
+        "subgenre": null,
+        "topics": [],
+        "year": null,
+        "version": null,
+        "product": null
+    },
+    "technical_doc": {
+        "genre": "technical_doc",
+        "subgenre": "other",
+        "topics": [],
+        "year": 2024,
+        "keywords": [],
+        "language": "en"
+    },
+    "tutorial": {
+        "genre": "tutorial",
+        "subgenre": "other",
+        "topics": [],
+        "year": 2024,
+        "keywords": [],
+        "language": "en"
+    },
+    "blog_post": {
+        "genre": "blog_post",
+        "subgenre": "other",
+        "topics": [],
+        "year": 2024,
+        "keywords": [],
+        "language": "en"
+    },
+    "news_article": {
+        "genre": "news_article",
+        "subgenre": "other",
+        "topics": [],
+        "year": 2024,
+        "keywords": [],
+        "language": "en"
+    }
+} 

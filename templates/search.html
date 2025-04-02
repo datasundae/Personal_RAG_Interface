@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+
+{% block title %}Search Documents - Personal RAG Interface{% endblock %}
+
+{% block content %}
+<div class="bg-white shadow rounded-lg p-6">
+    <div class="max-w-4xl mx-auto">
+        <h1 class="text-2xl font-bold text-gray-900 mb-6">Search Documents</h1>
+        
+        <div x-data="{ 
+            query: '',
+            results: [],
+            loading: false,
+            error: null,
+            filters: {
+                fileType: '',
+                dateRange: ''
+            }
+        }" 
+        class="space-y-6">
+            <!-- Search Input -->
+            <div class="relative">
+                <input 
+                    type="text"
+                    x-model="query"
+                    @input.debounce.300ms="
+                        if (query.length >= 2) {
+                            loading = true;
+                            error = null;
+                            fetch(`/api/search?query=${encodeURIComponent(query)}`)
+                                .then(response => response.json())
+                                .then(data => {
+                                    if (data.status === 'success') {
+                                        results = data.results;
+                                    } else {
+                                        error = data.message;
+                                    }
+                                })
+                                .catch(() => error = 'An error occurred while searching.')
+                                .finally(() => loading = false);
+                        } else {
+                            results = [];
+                        }
+                    "
+                    placeholder="Enter your search query..."
+                    class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                <div class="absolute inset-y-0 right-0 flex items-center pr-3">
+                    <i class="fas fa-search text-gray-400"></i>
+                </div>
+            </div>
+
+            <!-- Filters -->
+            <div class="flex flex-wrap gap-4">
+                <div class="flex-1 min-w-[200px]">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">File Type</label>
+                    <select 
+                        x-model="filters.fileType"
+                        class="w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        <option value="">All Types</option>
+                        <option value="pdf">PDF</option>
+                        <option value="txt">Text</option>
+                        <option value="doc">Word</option>
+                    </select>
+                </div>
+                <div class="flex-1 min-w-[200px]">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Date Range</label>
+                    <select 
+                        x-model="filters.dateRange"
+                        class="w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        <option value="">All Time</option>
+                        <option value="today">Today</option>
+                        <option value="week">This Week</option>
+                        <option value="month">This Month</option>
+                        <option value="year">This Year</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Loading State -->
+            <div x-show="loading" class="flex justify-center py-8">
+                <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+            </div>
+
+            <!-- Error Message -->
+            <div x-show="error" class="bg-red-50 rounded-lg p-4">
+                <div class="flex items-center">
+                    <i class="fas fa-exclamation-circle text-red-500 mr-2"></i>
+                    <span class="text-gray-700" x-text="error"></span>
+                </div>
+            </div>
+
+            <!-- Results -->
+            <div x-show="!loading && results.length > 0" class="space-y-4">
+                <div class="flex justify-between items-center">
+                    <h3 class="text-lg font-medium text-gray-900">
+                        Found <span x-text="results.length"></span> results
+                    </h3>
+                </div>
+                
+                <div class="space-y-4">
+                    <template x-for="result in results" :key="result.id">
+                        <div class="bg-gray-50 rounded-lg p-4 hover:bg-gray-100 transition-colors">
+                            <div class="flex items-start justify-between">
+                                <div class="flex-1">
+                                    <h4 class="text-lg font-medium text-gray-900 mb-2" x-text="result.title"></h4>
+                                    <p class="text-gray-600 mb-2" x-text="result.content"></p>
+                                    <div class="flex items-center text-sm text-gray-500">
+                                        <span class="mr-4">
+                                            <i class="fas fa-file-alt mr-1"></i>
+                                            <span x-text="result.metadata.file_type"></span>
+                                        </span>
+                                        <span>
+                                            <i class="fas fa-calendar-alt mr-1"></i>
+                                            <span x-text="new Date(result.metadata.created_at).toLocaleDateString()"></span>
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="ml-4">
+                                    <a :href="result.metadata.file_path" 
+                                       target="_blank"
+                                       class="inline-flex items-center px-3 py-1 border border-transparent text-sm font-medium rounded-md text-blue-700 bg-blue-100 hover:bg-blue-200">
+                                        <i class="fas fa-external-link-alt mr-1"></i>
+                                        View
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <!-- No Results -->
+            <div x-show="!loading && query.length >= 2 && results.length === 0" class="text-center py-8">
+                <i class="fas fa-search text-4xl text-gray-400 mb-4"></i>
+                <p class="text-gray-600">No results found for your query.</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const form = document.querySelector('form');
+    const results = document.getElementById('search-results');
+    const loading = document.getElementById('loading');
+    const noResults = document.getElementById('no-results');
+
+    form.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        // Show loading state
+        loading.classList.remove('hidden');
+        results.innerHTML = '';
+        noResults.classList.add('hidden');
+
+        // Get form data
+        const formData = new FormData(form);
+        const query = formData.get('query');
+        const fileType = formData.get('file_type');
+        const dateRange = formData.get('date_range');
+
+        try {
+            const response = await fetch(`/search?query=${encodeURIComponent(query)}&file_type=${fileType}&date_range=${dateRange}`);
+            const data = await response.json();
+
+            // Hide loading state
+            loading.classList.add('hidden');
+
+            if (data.results && data.results.length > 0) {
+                // Display results
+                results.innerHTML = data.results.map(result => `
+                    <div class="bg-white rounded-lg p-4 shadow hover:shadow-md transition-shadow">
+                        <h3 class="text-lg font-semibold text-gray-800 mb-2">${result.title}</h3>
+                        <p class="text-gray-600 mb-4">${result.snippet}</p>
+                        <div class="flex items-center justify-between text-sm text-gray-500">
+                            <span><i class="fas fa-file-alt mr-1"></i>${result.file_type}</span>
+                            <span><i class="fas fa-calendar mr-1"></i>${result.date}</span>
+                        </div>
+                    </div>
+                `).join('');
+            } else {
+                // Show no results state
+                noResults.classList.remove('hidden');
+            }
+        } catch (error) {
+            console.error('Search error:', error);
+            loading.classList.add('hidden');
+            results.innerHTML = `
+                <div class="bg-red-50 text-red-700 p-4 rounded-lg">
+                    <i class="fas fa-exclamation-circle mr-2"></i>
+                    An error occurred while searching. Please try again.
+                </div>
+            `;
+        }
+    });
+});
+</script>
+{% endblock %} 

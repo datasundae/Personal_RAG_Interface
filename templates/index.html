@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Personal RAG Interface{% endblock %}
+
+{% block content %}
+<div class="bg-white shadow rounded-lg p-6">
+    <div class="text-center">
+        <h1 class="text-3xl font-bold text-gray-900 mb-4">
+            Welcome to Personal RAG Interface
+        </h1>
+        <p class="text-xl text-gray-600 mb-8">
+            Your intelligent document processing and retrieval system
+        </p>
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto">
+            <div class="bg-blue-50 p-6 rounded-lg">
+                <i class="fas fa-upload text-4xl text-blue-500 mb-4"></i>
+                <h2 class="text-xl font-semibold text-gray-900 mb-2">Upload Documents</h2>
+                <p class="text-gray-600 mb-4">
+                    Upload your documents in various formats (PDF, TXT, etc.) for processing and indexing.
+                </p>
+                <a href="/upload" class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700">
+                    Start Uploading
+                </a>
+            </div>
+            
+            <div class="bg-green-50 p-6 rounded-lg">
+                <i class="fas fa-search text-4xl text-green-500 mb-4"></i>
+                <h2 class="text-xl font-semibold text-gray-900 mb-2">Search Documents</h2>
+                <p class="text-gray-600 mb-4">
+                    Search through your processed documents using natural language queries.
+                </p>
+                <a href="/search" class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700">
+                    Start Searching
+                </a>
+            </div>
+        </div>
+        
+        <div class="mt-12">
+            <h2 class="text-2xl font-semibold text-gray-900 mb-4">Features</h2>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl mx-auto">
+                <div class="text-center">
+                    <i class="fas fa-robot text-3xl text-purple-500 mb-2"></i>
+                    <h3 class="font-semibold text-gray-900">AI-Powered</h3>
+                    <p class="text-gray-600">Advanced natural language processing for better understanding</p>
+                </div>
+                <div class="text-center">
+                    <i class="fas fa-bolt text-3xl text-yellow-500 mb-2"></i>
+                    <h3 class="font-semibold text-gray-900">Fast Processing</h3>
+                    <p class="text-gray-600">Optimized for Apple M4 Pro performance</p>
+                </div>
+                <div class="text-center">
+                    <i class="fas fa-shield-alt text-3xl text-red-500 mb-2"></i>
+                    <h3 class="font-semibold text-gray-900">Secure</h3>
+                    <p class="text-gray-600">Your data stays on your device</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} 

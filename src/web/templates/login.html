@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+
+{% block title %}Login - Personal RAG Interface{% endblock %}
+
+{% block header %}Login{% endblock %}
+
+{% block additional_styles %}
+.login-container {
+    max-width: 400px;
+    margin: 40px auto;
+    padding: 20px;
+    background-color: #ffffff;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    text-align: center;
+}
+
+.google-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 12px 24px;
+    background-color: #ffffff;
+    border: 1px solid #dadce0;
+    border-radius: 4px;
+    color: #3c4043;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.google-btn:hover {
+    background-color: #f8f9fa;
+}
+
+.google-btn img {
+    width: 18px;
+    height: 18px;
+    margin-right: 12px;
+}
+
+.alert {
+    margin-bottom: 20px;
+}
+{% endblock %}
+
+{% block content %}
+<div class="login-container">
+    {% if error %}
+    <div class="alert alert-danger" role="alert">
+        {{ error }}
+    </div>
+    {% endif %}
+    
+    <form class="login-form" method="POST" action="{{ url_for('login') }}">
+        <button type="submit" class="google-btn">
+            <img src="https://www.google.com/favicon.ico" alt="Google logo">
+            Sign in with Google
+        </button>
+    </form>
+</div>
+{% endblock %} 

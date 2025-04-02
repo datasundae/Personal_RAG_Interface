@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+
+{% block title %}Upload Documents - Personal RAG Interface{% endblock %}
+
+{% block content %}
+<div class="bg-white shadow rounded-lg p-6">
+    <div class="max-w-3xl mx-auto">
+        <h1 class="text-2xl font-bold text-gray-900 mb-6">Upload Documents</h1>
+        
+        <div x-data="{ 
+            isDragging: false,
+            files: [],
+            processing: false,
+            results: [],
+            error: null
+        }" 
+        class="space-y-6">
+            <!-- Upload Area -->
+            <div 
+                @dragover.prevent="isDragging = true"
+                @dragleave.prevent="isDragging = false"
+                @drop.prevent="isDragging = false; files = $event.dataTransfer.files"
+                :class="{ 'border-blue-500 bg-blue-50': isDragging }"
+                class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center transition-colors">
+                
+                <div class="space-y-4">
+                    <i class="fas fa-cloud-upload-alt text-4xl text-gray-400"></i>
+                    <div>
+                        <p class="text-gray-600">Drag and drop your files here</p>
+                        <p class="text-sm text-gray-500 mt-1">or</p>
+                        <label class="mt-2 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 cursor-pointer">
+                            <span>Browse Files</span>
+                            <input type="file" class="hidden" multiple @change="files = $event.target.files">
+                        </label>
+                    </div>
+                    <p class="text-sm text-gray-500">
+                        Supported formats: PDF, TXT, DOC, DOCX
+                    </p>
+                </div>
+            </div>
+
+            <!-- Processing Options -->
+            <div class="bg-gray-50 rounded-lg p-4">
+                <h3 class="text-lg font-medium text-gray-900 mb-4">Processing Options</h3>
+                <div class="space-y-4">
+                    <label class="flex items-center">
+                        <input type="checkbox" class="form-checkbox h-4 w-4 text-blue-600">
+                        <span class="ml-2 text-gray-700">Use OCR for scanned documents</span>
+                    </label>
+                    <label class="flex items-center">
+                        <input type="checkbox" class="form-checkbox h-4 w-4 text-blue-600">
+                        <span class="ml-2 text-gray-700">Extract metadata</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- File List -->
+            <div x-show="files.length > 0" class="space-y-4">
+                <h3 class="text-lg font-medium text-gray-900">Selected Files</h3>
+                <ul class="space-y-2">
+                    <template x-for="file in files" :key="file.name">
+                        <li class="flex items-center justify-between bg-gray-50 rounded-lg p-3">
+                            <div class="flex items-center">
+                                <i class="fas fa-file-alt text-gray-400 mr-3"></i>
+                                <span class="text-gray-700" x-text="file.name"></span>
+                            </div>
+                            <span class="text-sm text-gray-500" x-text="(file.size / 1024).toFixed(2) + ' KB'"></span>
+                        </li>
+                    </template>
+                </ul>
+            </div>
+
+            <!-- Upload Button -->
+            <div class="flex justify-end">
+                <button 
+                    @click="processing = true; results = []; error = null"
+                    :disabled="files.length === 0 || processing"
+                    class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                    <i class="fas fa-upload mr-2"></i>
+                    <span x-text="processing ? 'Processing...' : 'Upload Files'"></span>
+                </button>
+            </div>
+
+            <!-- Results -->
+            <div x-show="results.length > 0" class="space-y-4">
+                <h3 class="text-lg font-medium text-gray-900">Processing Results</h3>
+                <div class="space-y-2">
+                    <template x-for="result in results" :key="result.filename">
+                        <div class="bg-green-50 rounded-lg p-3">
+                            <div class="flex items-center">
+                                <i class="fas fa-check-circle text-green-500 mr-2"></i>
+                                <span class="text-gray-700" x-text="result.filename"></span>
+                            </div>
+                            <p class="text-sm text-gray-500 mt-1" x-text="result.status"></p>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <!-- Error Message -->
+            <div x-show="error" class="bg-red-50 rounded-lg p-3">
+                <div class="flex items-center">
+                    <i class="fas fa-exclamation-circle text-red-500 mr-2"></i>
+                    <span class="text-gray-700" x-text="error"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('alpine:init', () => {
+    Alpine.data('uploadForm', () => ({
+        async uploadFiles() {
+            const formData = new FormData();
+            for (let file of this.files) {
+                formData.append('files', file);
+            }
+            
+            try {
+                const response = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    this.results = data.results;
+                    this.error = null;
+                } else {
+                    this.error = data.message;
+                }
+            } catch (error) {
+                this.error = 'An error occurred while uploading files.';
+            } finally {
+                this.processing = false;
+            }
+        }
+    }));
+});
+</script>
+{% endblock %} 
