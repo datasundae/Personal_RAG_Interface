@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 """
 Web application module.
 """
@@ -436,3 +437,432 @@ def get_books():
 
 if __name__ == '__main__':
     app.run(debug=True)
+=======
+from flask import Flask, render_template, request, jsonify, send_file
+from pathlib import Path
+import os
+from datetime import datetime
+import json
+from typing import Optional, Dict, Any
+
+from src.processing.ingest_documents import ingest_documents
+from src.database.postgres_vector_db import PostgreSQLVectorDB
+from src.config.metadata_config import MetadataManager, Genre, SubGenre
+from src.processing.url_processor import URLProcessor
+from src.config.config import DB_CONFIG, DEFAULT_METADATA
+from src.processing.rag_system import RAGSystem
+
+app = Flask(__name__)
+
+# Initialize RAG system
+rag_system = RAGSystem()
+
+def parse_metadata(metadata_str: Optional[str], template_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Parse metadata from form data and template."""
+    metadata_manager = MetadataManager("src/config/metadata_templates.json")
+    
+    # Start with template if provided
+    metadata = {}
+    if template_name:
+        try:
+            metadata = metadata_manager.get_template(template_name)
+        except ValueError as e:
+            print(f"Warning: {e}")
+    
+    # Override with form metadata if provided
+    if metadata_str:
+        try:
+            # Try to parse as JSON
+            cmd_metadata = json.loads(metadata_str)
+        except json.JSONDecodeError:
+            # If not valid JSON, try to parse as key=value pairs
+            cmd_metadata = {}
+            for pair in metadata_str.split(','):
+                if '=' not in pair:
+                    continue
+                key, value = pair.split('=', 1)
+                cmd_metadata[key.strip()] = value.strip()
+        
+        metadata.update(cmd_metadata)
+    
+    # Enrich metadata with defaults
+    metadata = metadata_manager.enrich_metadata(metadata)
+    
+    # Add default metadata
+    metadata.update(DEFAULT_METADATA)
+    
+    # Validate metadata
+    try:
+        metadata_manager.validate_metadata(metadata)
+    except ValueError as e:
+        print(f"Warning: Invalid metadata: {e}")
+    
+    return metadata
+
+@app.route('/')
+def index():
+    """Render the main interface."""
+    return render_template('index.html')
+
+@app.route('/ingest', methods=['POST'])
+def ingest():
+    """Handle document ingestion."""
+    try:
+        # Get form data
+        file = request.files.get('file')
+        url = request.form.get('url')
+        template = request.form.get('template')
+        subgenre = request.form.get('subgenre')
+        topics = request.form.getlist('topics')
+        year = request.form.get('year')
+        metadata_str = request.form.get('metadata')
+        
+        # Parse metadata
+        metadata = parse_metadata(metadata_str, template)
+        
+        # Override with form arguments
+        if subgenre:
+            metadata["subgenre"] = subgenre
+        if topics:
+            metadata["topics"] = topics
+        if year:
+            metadata["year"] = int(year)
+        
+        # Add ingestion metadata
+        metadata.update({
+            "ingestion_date": datetime.now().isoformat(),
+            "ingested_by": "web_interface"
+        })
+        
+        # Process based on input type
+        if url:
+            # Process URL
+            url_processor = URLProcessor()
+            doc = url_processor.process_url(url, metadata)
+            doc_id = rag_system.db_manager.add_documents([doc])[0]
+            return jsonify({
+                "success": True,
+                "message": f"Successfully ingested document from URL: {url}",
+                "document_id": doc_id,
+                "metadata": metadata
+            })
+        elif file:
+            # Process file
+            # Save uploaded file temporarily
+            temp_path = Path("temp_uploads")
+            temp_path.mkdir(exist_ok=True)
+            file_path = temp_path / file.filename
+            file.save(file_path)
+            
+            # Ingest document
+            doc_ids = ingest_documents(
+                str(file_path),
+                rag_system.db_manager,
+                metadata=metadata
+            )
+            
+            # Clean up
+            file_path.unlink()
+            
+            return jsonify({
+                "success": True,
+                "message": f"Successfully ingested document: {file.filename}",
+                "document_ids": doc_ids,
+                "metadata": metadata
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "message": "No file or URL provided"
+            })
+            
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        })
+
+@app.route('/query', methods=['POST'])
+def query():
+    """Handle RAG queries."""
+    try:
+        query_text = request.form.get('query')
+        k = int(request.form.get('k', 5))
+        
+        if not query_text:
+            return jsonify({
+                "success": False,
+                "message": "No query provided"
+            })
+        
+        # Process query
+        response, results = rag_system.query(query_text, k)
+        
+        # Format results
+        formatted_results = []
+        for doc, score in results:
+            formatted_results.append({
+                "content": doc.content,
+                "metadata": doc.metadata,
+                "score": float(score)
+            })
+        
+        return jsonify({
+            "success": True,
+            "response": response,
+            "results": formatted_results
+        })
+        
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        })
+
+@app.route('/documents', methods=['GET'])
+def list_documents():
+    """List all ingested documents."""
+    try:
+        db = PostgreSQLVectorDB()
+        documents = db.get_all_documents()
+        
+        formatted_docs = []
+        for doc in documents:
+            formatted_docs.append({
+                "id": doc.id,
+                "content": doc.content,
+                "metadata": doc.metadata
+            })
+        
+        return jsonify({
+            "success": True,
+            "documents": formatted_docs
+        })
+        
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        })
+
+@app.route('/document/<doc_id>', methods=['GET'])
+def get_document(doc_id):
+    """Get a specific document by ID."""
+    try:
+        db = PostgreSQLVectorDB()
+        doc = db.get_document(doc_id)
+        
+        if not doc:
+            return jsonify({
+                "success": False,
+                "message": "Document not found"
+            })
+        
+        return jsonify({
+            "success": True,
+            "document": {
+                "id": doc.id,
+                "content": doc.content,
+                "metadata": doc.metadata
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        })
+
+if __name__ == '__main__':
+    # Create templates directory if it doesn't exist
+    templates_dir = Path("templates")
+    templates_dir.mkdir(exist_ok=True)
+    
+    # Create index.html template
+    index_template = templates_dir / "index.html"
+    if not index_template.exists():
+        with open(index_template, "w") as f:
+            f.write("""
+<!DOCTYPE html>
+<html>
+<head>
+    <title>RAG Interface</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .container { max-width: 1200px; }
+        .section { margin-bottom: 2rem; }
+    </style>
+</head>
+<body>
+    <div class="container mt-4">
+        <h1 class="mb-4">RAG Interface</h1>
+        
+        <!-- Document Ingestion Section -->
+        <div class="section">
+            <h2>Ingest Documents</h2>
+            <form id="ingestForm" class="mb-3">
+                <div class="mb-3">
+                    <label class="form-label">Upload File</label>
+                    <input type="file" class="form-control" name="file">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Or Enter URL</label>
+                    <input type="url" class="form-control" name="url">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Template</label>
+                    <select class="form-select" name="template">
+                        <option value="">None</option>
+                        <option value="research_paper">Research Paper</option>
+                        <option value="blog_post">Blog Post</option>
+                        <option value="technical_doc">Technical Document</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Subgenre</label>
+                    <select class="form-select" name="subgenre">
+                        <option value="">None</option>
+                        <option value="machine_learning">Machine Learning</option>
+                        <option value="data_science">Data Science</option>
+                        <option value="other">Other</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Topics</label>
+                    <input type="text" class="form-control" name="topics" placeholder="Comma-separated topics">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Year</label>
+                    <input type="number" class="form-control" name="year">
+                </div>
+                <button type="submit" class="btn btn-primary">Ingest</button>
+            </form>
+            <div id="ingestResult" class="alert" style="display: none;"></div>
+        </div>
+        
+        <!-- Query Section -->
+        <div class="section">
+            <h2>Query Documents</h2>
+            <form id="queryForm" class="mb-3">
+                <div class="mb-3">
+                    <label class="form-label">Query</label>
+                    <input type="text" class="form-control" name="query" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Number of Results</label>
+                    <input type="number" class="form-control" name="k" value="5" min="1" max="20">
+                </div>
+                <button type="submit" class="btn btn-primary">Query</button>
+            </form>
+            <div id="queryResult" class="alert" style="display: none;"></div>
+        </div>
+        
+        <!-- Document List Section -->
+        <div class="section">
+            <h2>Ingested Documents</h2>
+            <div id="documentList" class="list-group"></div>
+        </div>
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Handle document ingestion
+        document.getElementById('ingestForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            
+            try {
+                const response = await fetch('/ingest', {
+                    method: 'POST',
+                    body: formData
+                });
+                const result = await response.json();
+                
+                const resultDiv = document.getElementById('ingestResult');
+                resultDiv.textContent = result.message;
+                resultDiv.className = `alert alert-${result.success ? 'success' : 'danger'}`;
+                resultDiv.style.display = 'block';
+                
+                if (result.success) {
+                    loadDocuments();
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                const resultDiv = document.getElementById('ingestResult');
+                resultDiv.textContent = 'An error occurred';
+                resultDiv.className = 'alert alert-danger';
+                resultDiv.style.display = 'block';
+            }
+        });
+        
+        // Handle queries
+        document.getElementById('queryForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            
+            try {
+                const response = await fetch('/query', {
+                    method: 'POST',
+                    body: formData
+                });
+                const result = await response.json();
+                
+                const resultDiv = document.getElementById('queryResult');
+                if (result.success) {
+                    let html = `<h4>Response:</h4><p>${result.response}</p>`;
+                    html += `<h4>Retrieved Documents:</h4>`;
+                    result.results.forEach((doc, i) => {
+                        html += `
+                            <div class="card mb-2">
+                                <div class="card-body">
+                                    <h5 class="card-title">Document ${i + 1} (Score: ${doc.score.toFixed(3)})</h5>
+                                    <p class="card-text">${doc.content.substring(0, 200)}...</p>
+                                </div>
+                            </div>
+                        `;
+                    });
+                    resultDiv.innerHTML = html;
+                } else {
+                    resultDiv.textContent = result.message;
+                }
+                resultDiv.className = `alert alert-${result.success ? 'success' : 'danger'}`;
+                resultDiv.style.display = 'block';
+            } catch (error) {
+                console.error('Error:', error);
+                const resultDiv = document.getElementById('queryResult');
+                resultDiv.textContent = 'An error occurred';
+                resultDiv.className = 'alert alert-danger';
+                resultDiv.style.display = 'block';
+            }
+        });
+        
+        // Load and display documents
+        async function loadDocuments() {
+            try {
+                const response = await fetch('/documents');
+                const result = await response.json();
+                
+                if (result.success) {
+                    const documentList = document.getElementById('documentList');
+                    documentList.innerHTML = result.documents.map(doc => `
+                        <div class="list-group-item">
+                            <h5 class="mb-1">Document ${doc.id}</h5>
+                            <p class="mb-1">${doc.content.substring(0, 100)}...</p>
+                            <small>Topics: ${doc.metadata.topics.join(', ')}</small>
+                        </div>
+                    `).join('');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        }
+        
+        // Load documents on page load
+        loadDocuments();
+    </script>
+</body>
+</html>
+            """)
+    
+    app.run(debug=True, port=5009) 
+>>>>>>> 8f39c0cbc19721b9785a7f78d10722be3f0eb339

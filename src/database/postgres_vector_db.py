@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 """
 PostgreSQL vector database implementation.
 """
@@ -12,6 +13,21 @@ from typing import List, Tuple, Optional, Dict, Any
 
 from ..processing.rag_document import RAGDocument
 from .db_connection import get_db_connection, init_db
+=======
+from typing import List, Optional, Dict, Any, Tuple
+import psycopg2
+from psycopg2.extras import execute_values
+import numpy as np
+from sentence_transformers import SentenceTransformer
+import os
+import json
+from cryptography.fernet import Fernet
+import base64
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+
+from .rag_document import RAGDocument
+>>>>>>> 8f39c0cbc19721b9785a7f78d10722be3f0eb339
 
 class PostgreSQLVectorDB:
     """PostgreSQL vector database with encryption for sensitive data."""
@@ -332,6 +348,7 @@ class PostgreSQLVectorDB:
     def close(self):
         """Close any open resources."""
         pass  # Connection is handled by context managers
+<<<<<<< HEAD
     
     def get_books(self) -> List[Dict[str, str]]:
         """Get the list of books from the documents table.
@@ -351,6 +368,8 @@ class PostgreSQLVectorDB:
                     return books
         except Exception as e:
             raise ValueError(f"Error retrieving books: {str(e)}")
+=======
+>>>>>>> 8f39c0cbc19721b9785a7f78d10722be3f0eb339
 
 # Example usage
 if __name__ == "__main__":

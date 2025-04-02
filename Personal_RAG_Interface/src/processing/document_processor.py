@@ -1,25 +1,3 @@
-<<<<<<< HEAD
-"""Document processing module for the RAG system."""
-
-import hashlib
-import os
-from pathlib import Path
-from typing import List, Dict, Any, Optional
-import uuid
-
-import numpy as np
-from sentence_transformers import SentenceTransformer
-from PyPDF2 import PdfReader
-import pytesseract
-from pdf2image import convert_from_path
-
-from ..config.config import DOC_CONFIG, MODEL_CONFIG
-from ..database.sqlite_vector_db import SQLiteVectorDB
-
-from .rag_document import RAGDocument
-from .pdf_processor import PDFProcessor
-from .image_processor import ImageProcessor
-=======
 from typing import List, Optional, Dict, Any, Tuple
 import PyPDF2
 import io
@@ -29,9 +7,9 @@ import pytesseract
 from pdf2image import convert_from_path
 import cv2
 import numpy as np
-from src.processing.rag_document import RAGDocument
-from src.processing.pdf_processor import PDFProcessor
-from src.processing.image_processor import ImageProcessor
+from .rag_document import RAGDocument
+from .pdf_processor import PDFProcessor
+from .image_processor import ImageProcessor
 import json
 import csv
 import pandas as pd
@@ -40,28 +18,12 @@ from PIL import Image
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
->>>>>>> 8f39c0cbc19721b9785a7f78d10722be3f0eb339
 
 class DocumentProcessor:
     """Process different types of documents and convert them to RAGDocument objects."""
     
-<<<<<<< HEAD
-    def __init__(self, db: Optional[SQLiteVectorDB] = None):
-        """Initialize the document processor.
-        
-        Args:
-            db: Optional SQLiteVectorDB instance. If not provided, creates a new one.
-        """
-        self.db = db or SQLiteVectorDB()
-        self.model = SentenceTransformer(MODEL_CONFIG['embedding_model'])
-        self.chunk_size = DOC_CONFIG['chunk_size']
-        self.chunk_overlap = DOC_CONFIG['chunk_overlap']
-        self.supported_formats = DOC_CONFIG['supported_formats']
-        self.max_file_size = DOC_CONFIG['max_file_size']
-=======
     def __init__(self):
         """Initialize the document processor."""
->>>>>>> 8f39c0cbc19721b9785a7f78d10722be3f0eb339
         self.pdf_processor = PDFProcessor()
         self.image_processor = ImageProcessor()
     
@@ -357,181 +319,6 @@ class DocumentProcessor:
         except Exception as e:
             raise ValueError(f"Error processing Google Doc {url}: {str(e)}")
 
-<<<<<<< HEAD
-    def _validate_file(self, file_path: str) -> bool:
-        """Validate if a file can be processed.
-        
-        Args:
-            file_path: Path to the file.
-        
-        Returns:
-            True if the file is valid, False otherwise.
-        """
-        path = Path(file_path)
-        if not path.exists():
-            return False
-        if path.suffix.lower() not in self.supported_formats:
-            return False
-        if path.stat().st_size > self.max_file_size:
-            return False
-        return True
-
-    def _extract_text_from_pdf(self, file_path: str) -> str:
-        """Extract text from a PDF file.
-        
-        Args:
-            file_path: Path to the PDF file.
-        
-        Returns:
-            Extracted text from the PDF.
-        """
-        reader = PdfReader(file_path)
-        text = ""
-        for page in reader.pages:
-            text += page.extract_text() or ""
-            
-        # If no text was extracted, try OCR
-        if not text.strip():
-            images = convert_from_path(file_path)
-            for image in images:
-                text += pytesseract.image_to_string(image) + "\n"
-        
-        return text
-
-    def _extract_text(self, file_path: str) -> str:
-        """Extract text from a file.
-        
-        Args:
-            file_path: Path to the file.
-        
-        Returns:
-            Extracted text from the file.
-        """
-        path = Path(file_path)
-        if path.suffix.lower() == '.pdf':
-            return self._extract_text_from_pdf(file_path)
-        elif path.suffix.lower() == '.txt':
-            with open(file_path, 'r', encoding='utf-8') as f:
-                return f.read()
-        else:
-            raise ValueError(f"Unsupported file format: {path.suffix}")
-
-    def _chunk_text(self, text: str) -> List[str]:
-        """Split text into chunks.
-        
-        Args:
-            text: Text to split into chunks.
-        
-        Returns:
-            List of text chunks.
-        """
-        chunks = []
-        start = 0
-        
-        while start < len(text):
-            end = start + self.chunk_size
-            
-            # Adjust chunk end to not split words
-            if end < len(text):
-                while end > start and not text[end].isspace():
-                    end -= 1
-                if end == start:
-                    end = start + self.chunk_size
-            
-            chunks.append(text[start:end].strip())
-            start = end - self.chunk_overlap
-        
-        return [chunk for chunk in chunks if chunk]
-
-    def _generate_document_id(self, content: str, metadata: Dict[str, Any]) -> str:
-        """Generate a unique document ID.
-        
-        Args:
-            content: Document content.
-            metadata: Document metadata.
-        
-        Returns:
-            Unique document ID.
-        """
-        unique_str = f"{content}{metadata}{uuid.uuid4()}"
-        return hashlib.sha256(unique_str.encode()).hexdigest()[:32]
-
-    async def process_file(self, file_path: str, metadata: Optional[Dict[str, Any]] = None) -> List[str]:
-        """Process a file and store it in the database.
-        
-        Args:
-            file_path: Path to the file to process.
-            metadata: Optional metadata for the document.
-        
-        Returns:
-            List of document IDs for the processed chunks.
-        """
-        if not self._validate_file(file_path):
-            raise ValueError(f"Invalid file: {file_path}")
-
-        metadata = metadata or {}
-        metadata['source_file'] = file_path
-        metadata['file_type'] = Path(file_path).suffix.lower()
-
-        text = self._extract_text(file_path)
-        chunks = self._chunk_text(text)
-        
-        documents = []
-        for i, chunk in enumerate(chunks):
-            chunk_metadata = metadata.copy()
-            chunk_metadata['chunk_index'] = i
-            chunk_metadata['total_chunks'] = len(chunks)
-            
-            doc_id = self._generate_document_id(chunk, chunk_metadata)
-            embedding = self.model.encode(chunk).tolist()
-            
-            doc = {
-                'id': doc_id,
-                'content': chunk,
-                'metadata': chunk_metadata,
-                'embedding': embedding
-            }
-            documents.append(doc)
-        
-        return await self.db.add_documents(documents)
-
-    async def process_directory(self, dir_path: str, metadata: Optional[Dict[str, Any]] = None) -> List[str]:
-        """Process all supported files in a directory.
-        
-        Args:
-            dir_path: Path to the directory to process.
-            metadata: Optional metadata to apply to all documents.
-        
-        Returns:
-            List of document IDs for all processed chunks.
-        """
-        doc_ids = []
-        for root, _, files in os.walk(dir_path):
-            for file in files:
-                file_path = os.path.join(root, file)
-                if self._validate_file(file_path):
-                    try:
-                        chunk_ids = await self.process_file(file_path, metadata)
-                        doc_ids.extend(chunk_ids)
-                    except Exception as e:
-                        print(f"Error processing {file_path}: {e}")
-        return doc_ids
-
-    async def search(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
-        """Search for documents similar to the query.
-        
-        Args:
-            query: Search query.
-            limit: Maximum number of results to return.
-        
-        Returns:
-            List of document dictionaries with similarity scores.
-        """
-        query_embedding = self.model.encode(query).tolist()
-        return await self.db.search_documents(query_embedding, limit)
-
-=======
->>>>>>> 8f39c0cbc19721b9785a7f78d10722be3f0eb339
 # Example usage
 if __name__ == "__main__":
     # Initialize the document processor

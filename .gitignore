@@ -37,6 +37,7 @@ logs/
 
 # Environment variables
 .env
+.env.*
 
 # Database
 *.db
@@ -49,4 +50,12 @@ src/flask_session/
 google_client_secret_*.json
 
 # Data files
-data/ 
+data/
+
+# Project specific
+config.local.py
+temp_uploads/
+
+# OS specific
+.DS_Store
+Thumbs.db

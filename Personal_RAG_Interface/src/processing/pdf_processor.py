@@ -1,27 +1,3 @@
-<<<<<<< HEAD
-"""
-PDF processor module.
-"""
-
-import os
-from pathlib import Path
-from typing import List, Optional, Dict, Any, Tuple, Union
-import PyPDF2
-import io
-import pytesseract
-from pdf2image import convert_from_path
-import cv2
-import numpy as np
-
-from ..config.config import DOC_CONFIG
-from .rag_document import RAGDocument
-from dataclasses import dataclass
-from transformers import AutoTokenizer
-import re
-import tiktoken
-import fitz  # PyMuPDF
-from PIL import Image
-=======
 import os
 from typing import List, Optional, Dict, Any, Union
 import pytesseract
@@ -33,12 +9,11 @@ import PyPDF2
 import re
 import tiktoken
 from pathlib import Path
-from src.config.config import DOC_CONFIG
-from src.processing.rag_document import RAGDocument
+from .config import DOC_CONFIG
+from .rag_document import RAGDocument
 from dataclasses import dataclass
 from transformers import AutoTokenizer
 import numpy as np
->>>>>>> 8f39c0cbc19721b9785a7f78d10722be3f0eb339
 
 @dataclass
 class RAGDocument:
