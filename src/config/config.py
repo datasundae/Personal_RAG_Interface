@@ -1,16 +1,24 @@
 """Configuration settings for the RAG system."""
 
-<<<<<<< HEAD
 import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
+# OpenAI configuration
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+OPENAI_CONFIG = {
+    "model": "gpt-4-turbo-preview",
+    "temperature": 0.7,
+    "max_tokens": 1000,
+    "top_p": 1.0
+}
 
 # Project root directory
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 
-# Database configuration
-DB_CONFIG = {
-    'sqlite_path': str(PROJECT_ROOT / "data" / "rag.db"),
-=======
 # Database configuration
 DB_CONFIG = {
     "dbname": "musartao",
@@ -18,7 +26,6 @@ DB_CONFIG = {
     "password": "6AV%b9",
     "host": "localhost",
     "port": 5432
->>>>>>> 8f39c0cbc19721b9785a7f78d10722be3f0eb339
 }
 
 # Default metadata
@@ -37,7 +44,6 @@ URL_CONFIG = {
 
 # Document processing configuration
 DOC_CONFIG = {
-<<<<<<< HEAD
     'chunk_size': 1000,  # Number of characters per chunk
     'chunk_overlap': 200,  # Number of characters to overlap between chunks
     'min_chunk_size': 100,  # Minimum chunk size for PDF processing
@@ -47,12 +53,6 @@ DOC_CONFIG = {
     'supported_formats': ['.txt', '.pdf'],  # Supported file formats
     'tesseract_path': '/usr/local/bin/tesseract',  # Path to Tesseract OCR executable
     'poppler_path': '/usr/local/bin/pdftoppm',  # Path to Poppler PDF tools
-=======
-    "chunk_size": 1000,  # Maximum number of characters per chunk
-    "chunk_overlap": 200,  # Number of characters to overlap between chunks
-    "min_chunk_size": 100,  # Minimum chunk size to process
-    "max_chunks": 100  # Maximum number of chunks per document
->>>>>>> 8f39c0cbc19721b9785a7f78d10722be3f0eb339
 }
 
 # Vector search configuration
@@ -63,7 +63,6 @@ VECTOR_CONFIG = {
     "max_results": 10  # Maximum number of search results
 }
 
-<<<<<<< HEAD
 # Hardware-specific configuration for Mac mini M4 Pro
 HARDWARE_CONFIG = {
     "cpu": {
@@ -82,9 +81,6 @@ HARDWARE_CONFIG = {
 }
 
 # GPU configuration optimized for M4 Pro
-=======
-# GPU configuration
->>>>>>> 8f39c0cbc19721b9785a7f78d10722be3f0eb339
 GPU_CONFIG = {
     "batch_size": 128,  # Increased batch size for M4 Pro's 14 cores
     "use_mixed_precision": True,  # Enable mixed precision for faster processing
@@ -95,7 +91,6 @@ GPU_CONFIG = {
     "prefetch_factor": 2,  # Prefetch factor for data loading
     "persistent_workers": True,  # Keep workers alive between batches
     "use_amp": True  # Use Automatic Mixed Precision
-<<<<<<< HEAD
 }
 
 # Model configuration optimized for M4 Pro
@@ -121,7 +116,4 @@ for directory in [
     PROJECT_ROOT / "data",
     PROJECT_ROOT / "cache",
 ]:
-    directory.mkdir(parents=True, exist_ok=True) 
-=======
-} 
->>>>>>> 8f39c0cbc19721b9785a7f78d10722be3f0eb339
+    directory.mkdir(parents=True, exist_ok=True)

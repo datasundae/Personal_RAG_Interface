@@ -2,8 +2,8 @@
 import os
 from pathlib import Path
 import psycopg2
-from src.postgres_vector_db import PostgreSQLVectorDB
-from src.ingest_documents import ingest_documents
+from src.database.postgres_vector_db import PostgreSQLVectorDB
+from src.processing.ingest_documents import ingest_documents
 
 def update_books_table(file_path: str, processed: bool = True):
     """Update the books table in the musartao database."""
@@ -30,13 +30,7 @@ def update_books_table(file_path: str, processed: bool = True):
 
 def main():
     # Initialize the database
-    db = PostgreSQLVectorDB(
-        dbname="musartao",
-        user="datasundae",
-        password="6AV%b9",
-        host="localhost",
-        port=5432
-    )
+    db = PostgreSQLVectorDB()  # Use default parameters from class
     
     # Path to PDFIngest directory
     pdf_dir = "/Volumes/NVME_Expansion/musartao/data/books/PDFIngest"

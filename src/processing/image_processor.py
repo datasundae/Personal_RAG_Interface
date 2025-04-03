@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 """
 Image processor module.
 """
@@ -6,20 +5,12 @@ Image processor module.
 import os
 from pathlib import Path
 from typing import List, Optional, Dict, Any
-=======
-import os
-from typing import Optional, Dict, Any
->>>>>>> 8f39c0cbc19721b9785a7f78d10722be3f0eb339
 import pytesseract
 from PIL import Image
 import cv2
 import numpy as np
 
-<<<<<<< HEAD
 from .rag_document import RAGDocument
-=======
-from src.processing.rag_document import RAGDocument
->>>>>>> 8f39c0cbc19721b9785a7f78d10722be3f0eb339
 
 class ImageProcessor:
     def __init__(self):

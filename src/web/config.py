@@ -38,7 +38,7 @@ DB_CONFIG = {
 GOOGLE_CONFIG = {
     'CLIENT_ID': os.getenv('GOOGLE_CLIENT_ID'),
     'CLIENT_SECRET': os.getenv('GOOGLE_CLIENT_SECRET'),
-    'REDIRECT_URI': os.getenv('GOOGLE_REDIRECT_URI', 'http://127.0.0.1:5009/callback'),
+    'REDIRECT_URI': os.getenv('GOOGLE_REDIRECT_URI', 'http://127.0.0.1:5010/callback'),
     'ALLOWED_DOMAINS': ['datasundae.com'],
     'SCOPES': [
         'https://www.googleapis.com/auth/userinfo.email',

@@ -20,12 +20,17 @@ class VectorDBSearch:
             
             with psycopg2.connect(self.connection_string) as conn:
                 with conn.cursor(cursor_factory=DictCursor) as cur:
-                    # Construct base query
+                    # Construct base query with boosted similarity for exact title matches
                     query = """
-                        SELECT content, metadata, 1 - (embedding <=> %s::vector) as similarity
+                        SELECT content, metadata, 
+                               CASE 
+                                   WHEN metadata->>'title' ILIKE %s THEN 1.0
+                                   ELSE 1 - (embedding <=> %s::vector)
+                               END as similarity
                         FROM documents
                     """
-                    params = [query_embedding.tolist()]
+                    # Add title boost parameter (using the query as a partial match)
+                    params = [f"%{query}%", query_embedding.tolist()]
                     
                     # Add metadata filter if provided
                     if metadata_filter:
@@ -48,13 +53,16 @@ class VectorDBSearch:
                     
                     results = []
                     for row in cur.fetchall():
-                        self.logger.info(f"Found document with similarity: {row['similarity']}")
-                        self.logger.info(f"Document metadata: {row['metadata']}")
-                        results.append({
-                            'text': row['content'],
+                        result = {
+                            'content': row['content'],
                             'metadata': row['metadata'],
                             'similarity': row['similarity']
-                        })
+                        }
+                        results.append(result)
+                        self.logger.info(f"Found document with similarity: {row['similarity']}")
+                        self.logger.info(f"Document metadata: {row['metadata']}")
+                    
+                    self.logger.info(f"Returning {len(results)} documents from vector search")
                     return results
                     
         except Exception as e:

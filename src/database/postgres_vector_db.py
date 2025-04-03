@@ -1,36 +1,27 @@
-<<<<<<< HEAD
 """
-PostgreSQL vector database implementation.
+PostgreSQL vector database implementation with optimized search capabilities.
 """
 
 import numpy as np
 from sentence_transformers import SentenceTransformer
 import psycopg2
 import psycopg2.extras
+from psycopg2.extras import execute_values
 import json
 import logging
 from typing import List, Tuple, Optional, Dict, Any
-
-from ..processing.rag_document import RAGDocument
-from .db_connection import get_db_connection, init_db
-=======
-from typing import List, Optional, Dict, Any, Tuple
-import psycopg2
-from psycopg2.extras import execute_values
-import numpy as np
-from sentence_transformers import SentenceTransformer
 import os
-import json
 from cryptography.fernet import Fernet
 import base64
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from functools import lru_cache
 
-from .rag_document import RAGDocument
->>>>>>> 8f39c0cbc19721b9785a7f78d10722be3f0eb339
+from ..processing.rag_document import RAGDocument
+from .db_connection import DatabaseConnection, init_db
 
 class PostgreSQLVectorDB:
-    """PostgreSQL vector database with encryption for sensitive data."""
+    """PostgreSQL vector database with encryption and optimized search."""
     
     def __init__(
         self,
@@ -38,7 +29,8 @@ class PostgreSQLVectorDB:
         user: str = "datasundae",
         password: str = "6AV%b9",
         host: str = "localhost",
-        port: int = 5432
+        port: int = 5432,
+        cache_size: int = 1000
     ):
         """Initialize the PostgreSQL vector database.
         
@@ -48,6 +40,7 @@ class PostgreSQLVectorDB:
             password: Database password
             host: Database host
             port: Database port
+            cache_size: Size of the LRU cache for search results
         """
         self.conn_params = {
             "dbname": dbname,
@@ -60,11 +53,14 @@ class PostgreSQLVectorDB:
         # Initialize encryption
         self._init_encryption()
         
-        # Initialize sentence transformer model
-        self.model = SentenceTransformer('all-MiniLM-L6-v2')
+        # Initialize sentence transformer model with smaller model
+        self.model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
         
         # Create tables if they don't exist
         self._init_db()
+        
+        # Configure logging
+        self.logger = logging.getLogger(__name__)
     
     def _init_encryption(self):
         """Initialize encryption key and Fernet instance."""
@@ -89,43 +85,51 @@ class PostgreSQLVectorDB:
         return self.fernet.decrypt(encrypted_data.encode()).decode()
     
     def _init_db(self):
-        """Initialize the database with encrypted columns."""
+        """Initialize the database with optimized indexes."""
         try:
+            # First transaction: Create extensions and table
             with psycopg2.connect(**self.conn_params) as conn:
                 with conn.cursor() as cur:
-                    # Enable pgvector extension
+                    # Enable required extensions
                     cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+                    cur.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm;")
                     
-                    # Check if the table exists and has the required columns
-                    cur.execute("""
-                        SELECT column_name 
-                        FROM information_schema.columns 
-                        WHERE table_name = 'documents';
-                    """)
-                    existing_columns = [row[0] for row in cur.fetchall()]
+                    # Drop existing indexes if they exist
+                    cur.execute("DROP INDEX IF EXISTS documents_embedding_idx;")
+                    cur.execute("DROP INDEX IF EXISTS documents_metadata_idx;")
                     
-                    # If table exists but missing required columns, drop it
-                    if existing_columns and 'encrypted_content' not in existing_columns:
-                        cur.execute("DROP TABLE documents;")
-                        conn.commit()
-                    
-                    # Create documents table with encrypted columns
+                    # Create documents table with optimized structure
                     cur.execute("""
                         CREATE TABLE IF NOT EXISTS documents (
                             id SERIAL PRIMARY KEY,
                             content TEXT NOT NULL,
                             encrypted_content TEXT NOT NULL,
                             metadata JSONB,
-                            embedding vector(384)
+                            embedding vector(384)  -- Updated for MiniLM model
                         );
                     """)
+                    conn.commit()
+            
+            # Second transaction: Create indexes
+            with psycopg2.connect(**self.conn_params) as conn:
+                with conn.cursor() as cur:
+                    # Increase maintenance_work_mem for index creation
+                    cur.execute("SET maintenance_work_mem = '256MB';")
+                    cur.execute("SET max_parallel_workers_per_gather = 4;")
                     
-                    # Create index on embedding
+                    # Create optimized indexes
                     cur.execute("""
-                        CREATE INDEX IF NOT EXISTS documents_embedding_idx 
+                        CREATE INDEX documents_embedding_idx 
                         ON documents 
                         USING ivfflat (embedding vector_cosine_ops)
                         WITH (lists = 100);
+                    """)
+                    
+                    # Add GIN index for metadata
+                    cur.execute("""
+                        CREATE INDEX documents_metadata_idx
+                        ON documents
+                        USING GIN (metadata);
                     """)
                     
                     conn.commit()
@@ -184,25 +188,28 @@ class PostgreSQLVectorDB:
         except Exception as e:
             raise ValueError(f"Error adding documents: {str(e)}")
     
+    @lru_cache(maxsize=1000)
+    def _cached_search(
+        self,
+        query: str,
+        k: int = 5,
+        metadata_filter: Optional[Dict[str, Any]] = None
+    ) -> List[Tuple[RAGDocument, float]]:
+        """Cached version of the search function."""
+        return self._search_impl(query, k, metadata_filter)
+    
     def search(
         self,
         query: str,
         k: int = 5,
         metadata_filter: Optional[Dict[str, Any]] = None
     ) -> List[Tuple[RAGDocument, float]]:
-        """Search for similar documents.
-        
-        Args:
-            query: Search query
-            k: Number of results to return
-            metadata_filter: Optional metadata filter with support for multiple conditions
-            
-        Returns:
-            List of tuples (RAGDocument, similarity)
-        """
+        """Search for similar documents."""
         try:
             # Generate query embedding
+            self.logger.info(f"Generating embedding for query: {query}")
             query_embedding = self.model.encode(query)
+            self.logger.info(f"Generated embedding shape: {query_embedding.shape}")
             
             with psycopg2.connect(**self.conn_params) as conn:
                 with conn.cursor() as cur:
@@ -228,13 +235,22 @@ class PostgreSQLVectorDB:
                     params.append(k)
                     
                     # Execute query
+                    self.logger.info(f"Executing vector similarity search query")
+                    self.logger.info(f"SQL: {sql}")
+                    self.logger.info(f"Parameters: {params}")
+                    
                     cur.execute(sql, params)
                     results = cur.fetchall()
+                    
+                    self.logger.info(f"Found {len(results)} results")
                     
                     # Format results
                     documents = []
                     for row in results:
                         doc_id, content, encrypted_content, metadata, similarity = row
+                        self.logger.info(f"Document {doc_id} similarity: {similarity}")
+                        self.logger.info(f"Document metadata: {metadata}")
+                        
                         doc = RAGDocument(
                             text=content,
                             metadata=metadata
@@ -244,40 +260,38 @@ class PostgreSQLVectorDB:
                     return documents
                     
         except Exception as e:
+            self.logger.error(f"Error in vector search: {str(e)}")
+            self.logger.error(f"Error type: {type(e)}")
+            self.logger.error(f"Error details: {e.__dict__ if hasattr(e, '__dict__') else 'No details available'}")
             raise ValueError(f"Error searching documents: {str(e)}")
     
     def _format_metadata_filter(self, metadata_filter: Dict[str, Any]) -> Tuple[str, List[Any]]:
-        """Format metadata filter into SQL condition and parameters.
-        
-        Args:
-            metadata_filter: Dictionary of metadata key-value pairs or conditions
-            
-        Returns:
-            Tuple of (SQL condition string, list of parameters)
-        """
+        """Format metadata filter into optimized SQL condition."""
         conditions = []
         params = []
         
         for key, value in metadata_filter.items():
             if isinstance(value, dict):
-                # Handle complex conditions (e.g., {'$in': ['value1', 'value2']})
+                # Handle complex conditions with index-aware queries
                 for op, val in value.items():
                     if op == '$in':
                         placeholders = ','.join(['%s'] * len(val))
-                        conditions.append(f"metadata->>'{key}' IN ({placeholders})")
-                        params.extend(val)
+                        conditions.append(f"metadata->'{key}' ?| array[{placeholders}]")
+                        params.extend([json.dumps(v) for v in val])
                     elif op == '$regex':
-                        conditions.append(f"metadata->>'{key}' ~ %s")
+                        conditions.append(f"metadata->'{key}' ? %s")
                         params.append(val)
                     elif op == '$exists':
                         if val:
-                            conditions.append(f"metadata ? '{key}'")
+                            conditions.append(f"metadata ? %s")
+                            params.append(key)
                         else:
-                            conditions.append(f"NOT metadata ? '{key}'")
+                            conditions.append(f"NOT metadata ? %s")
+                            params.append(key)
             else:
-                # Handle simple equality condition
-                conditions.append(f"metadata->>'{key}' = %s")
-                params.append(str(value))
+                # Optimize simple equality conditions
+                conditions.append(f"metadata @> %s")
+                params.append(json.dumps({key: value}))
         
         return " AND ".join(conditions), params
     
@@ -348,7 +362,6 @@ class PostgreSQLVectorDB:
     def close(self):
         """Close any open resources."""
         pass  # Connection is handled by context managers
-<<<<<<< HEAD
     
     def get_books(self) -> List[Dict[str, str]]:
         """Get the list of books from the documents table.
@@ -368,8 +381,6 @@ class PostgreSQLVectorDB:
                     return books
         except Exception as e:
             raise ValueError(f"Error retrieving books: {str(e)}")
-=======
->>>>>>> 8f39c0cbc19721b9785a7f78d10722be3f0eb339
 
 # Example usage
 if __name__ == "__main__":
@@ -402,4 +413,5 @@ if __name__ == "__main__":
         print(f"Content: {doc.content}")
         print(f"Metadata: {doc.metadata}")
         print(f"Similarity: {similarity}")
+        print("-" * 80)
         print("-" * 80) 
